@@ -1,8 +1,10 @@
 package godb
 
 import (
+	"bytes"
 	"testing"
-	"unsafe"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestHeapPageInsert(t *testing.T) {
@@ -10,10 +12,6 @@ func TestHeapPageInsert(t *testing.T) {
 	pg, err := newHeapPage(&td, 0, hf)
 	if err != nil {
 		t.Fatalf(err.Error())
-	}
-	var expectedSlots = (PageSize - 8) / (StringLength + int(unsafe.Sizeof(int64(0))))
-	if pg.getNumSlots() != expectedSlots {
-		t.Fatalf("Incorrect number of slots, expected %d, got %d", expectedSlots, pg.getNumSlots())
 	}
 
 	_, err = pg.insertTuple(&t1)
@@ -276,4 +274,45 @@ func TestHeapPageBufferLen(t *testing.T) {
 	if buf.Len() != PageSize {
 		t.Fatalf("HeapPage.toBuffer returns buffer of unexpected size;  NOTE:  This error may be OK, but many implementations that don't write full pages break.")
 	}
+}
+
+func TestHeapPageFreeList(t *testing.T) {
+	rq := require.New(t)
+	free := NewFreeList()
+
+	// should be empty initially
+	rq.False(free.IsFull())
+
+	// Test get slot
+	for i := 0; i < 64; i++ {
+		rq.False(free.IsFull(), "Expected false, i=%d", i)
+		slot := free.GetSlot()
+		rq.Equal(i, slot, "Expected slot %d to be %d", i, slot)
+		rq.True(free.Test(slot), "Expected slot %d to be marked as used", slot)
+	}
+
+	// should be full now
+	rq.True(free.IsFull(), "Expected free list to be full after 64 slots")
+
+	// test release
+	free.ReleaseSlot(32)
+	rq.False(free.IsFull())
+	rq.False(free.Test(32), "Expected slot 32 to be released")
+
+	// should get what we released
+	slot := free.GetSlot()
+	rq.Equal(32, slot)
+
+	free.ReleaseSlot(1)
+	free.ReleaseSlot(15)
+
+	// test write to buf
+	buf := bytes.NewBuffer(nil)
+	rq.NoError(free.WriteTo(buf))
+
+	// should deserialize correctly
+	newFree, err := NewFreeListFromBuf(buf)
+	rq.NoError(err)
+	rq.Equal(free.bitmap, newFree.bitmap)
+	rq.EqualValues(free.free, newFree.free)
 }

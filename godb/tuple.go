@@ -56,6 +56,21 @@ type TupleDesc struct {
 	Fields []FieldType
 }
 
+func (td *TupleDesc) Size() int {
+	n := 0
+	for _, f := range td.Fields {
+		switch f.Ftype {
+		case IntType:
+			n += 8 // int64 size
+		case StringType:
+			n += StringLength // fixed size for strings
+		default:
+			panic(fmt.Sprintf("unknown field type %s in TupleDesc", f.Ftype))
+		}
+	}
+	return n
+}
+
 // Compare two tuple descs, and return true iff
 // all of their field objects are equal and they
 // are the same length
@@ -163,6 +178,11 @@ type Tuple struct {
 }
 
 type recordID interface {
+}
+
+type RecordId struct {
+	PageNo int // the page number this record is on
+	Slot   int // the slot number this record is in on the page
 }
 
 // Serialize the contents of the tuple into a byte array Since all tuples are of

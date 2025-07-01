@@ -19,18 +19,33 @@ const (
 
 type BufferPool struct {
 	// TODO: some code goes here
+	cap   int
+	pages map[any]Page
+	queue []any
 }
 
 // Create a new BufferPool with the specified number of pages
 func NewBufferPool(numPages int) (*BufferPool, error) {
-	return &BufferPool{}, fmt.Errorf("NewBufferPool not implemented")
+	return &BufferPool{
+		cap:   numPages,
+		pages: make(map[any]Page, numPages),
+		queue: make([]any, 0, numPages),
+	}, nil
 }
 
 // Testing method -- iterate through all pages in the buffer pool
 // and flush them using [DBFile.flushPage]. Does not need to be thread/transaction safe.
 // Mark pages as not dirty after flushing them.
 func (bp *BufferPool) FlushAllPages() {
-	// TODO: some code goes here
+	for _, page := range bp.pages {
+		if page.isDirty() {
+			err := page.getFile().flushPage(page)
+			if err != nil {
+				fmt.Printf("FlushAllPages: error flushing page: %v\n", err)
+			}
+			page.setDirty(0, false)
+		}
+	}
 }
 
 // Abort the transaction, releasing locks. Because GoDB is FORCE/NO STEAL, none
@@ -69,5 +84,26 @@ func (bp *BufferPool) BeginTransaction(tid TransactionID) error {
 // implement locking or deadlock detection. You will likely want to store a list
 // of pages in the BufferPool in a map keyed by the [DBFile.pageKey].
 func (bp *BufferPool) GetPage(file DBFile, pageNo int, tid TransactionID, perm RWPerm) (Page, error) {
-	return nil, fmt.Errorf("GetPage not implemented")
+	ret, ok := bp.pages[file.pageKey(pageNo)]
+	if ok {
+		return ret, nil
+	}
+
+	read, err := file.readPage(pageNo)
+	if err != nil {
+		return nil, fmt.Errorf("GetPage: error reading page %d from file: %w", pageNo, err)
+	}
+
+	if len(bp.pages) >= bp.cap {
+		evict := bp.queue[0]
+
+		copy(bp.queue, bp.queue[1:])
+		bp.queue = bp.queue[:len(bp.queue)-1]
+
+		delete(bp.pages, evict)
+	}
+
+	bp.pages[file.pageKey(pageNo)] = read
+	bp.queue = append(bp.queue, file.pageKey(pageNo))
+	return read, nil
 }

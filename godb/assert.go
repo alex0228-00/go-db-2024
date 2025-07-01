@@ -14,3 +14,10 @@ func assert(cond bool, msg ...interface{}) {
 		panic(fmt.Sprintf("assertion failed: %s", strings.Join(strs, ";")))
 	}
 }
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
