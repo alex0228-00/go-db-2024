@@ -3,6 +3,7 @@ package godb
 import (
 	"bytes"
 	"testing"
+	"unsafe"
 
 	"github.com/stretchr/testify/require"
 )
@@ -12,6 +13,10 @@ func TestHeapPageInsert(t *testing.T) {
 	pg, err := newHeapPage(&td, 0, hf)
 	if err != nil {
 		t.Fatalf(err.Error())
+	}
+	var expectedSlots = (PageSize - 8) / (StringLength + int(unsafe.Sizeof(int64(0))))
+	if pg.getNumSlots() != expectedSlots {
+		t.Logf("[Warning] Incorrect number of slots, expected %d, got %d", expectedSlots, pg.getNumSlots())
 	}
 
 	_, err = pg.insertTuple(&t1)

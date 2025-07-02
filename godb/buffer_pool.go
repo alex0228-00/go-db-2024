@@ -21,7 +21,6 @@ type BufferPool struct {
 	// TODO: some code goes here
 	cap   int
 	pages map[any]Page
-	queue []any
 }
 
 // Create a new BufferPool with the specified number of pages
@@ -29,7 +28,6 @@ func NewBufferPool(numPages int) (*BufferPool, error) {
 	return &BufferPool{
 		cap:   numPages,
 		pages: make(map[any]Page, numPages),
-		queue: make([]any, 0, numPages),
 	}, nil
 }
 
@@ -40,9 +38,8 @@ func (bp *BufferPool) FlushAllPages() {
 	for _, page := range bp.pages {
 		if page.isDirty() {
 			err := page.getFile().flushPage(page)
-			if err != nil {
-				fmt.Printf("FlushAllPages: error flushing page: %v\n", err)
-			}
+
+			assert(err == nil, "FlushAllPages: error flushing page: %v", err)
 			page.setDirty(0, false)
 		}
 	}
@@ -89,21 +86,30 @@ func (bp *BufferPool) GetPage(file DBFile, pageNo int, tid TransactionID, perm R
 		return ret, nil
 	}
 
+	if err := bp.evictPageIfNeed(); err != nil {
+		return nil, fmt.Errorf("GetPage: buffer pool is full, cannot evict any page: %w", err)
+	}
+
 	read, err := file.readPage(pageNo)
 	if err != nil {
 		return nil, fmt.Errorf("GetPage: error reading page %d from file: %w", pageNo, err)
 	}
 
-	if len(bp.pages) >= bp.cap {
-		evict := bp.queue[0]
+	bp.pages[file.pageKey(pageNo)] = read
+	return read, nil
+}
 
-		copy(bp.queue, bp.queue[1:])
-		bp.queue = bp.queue[:len(bp.queue)-1]
-
-		delete(bp.pages, evict)
+func (bp *BufferPool) evictPageIfNeed() error {
+	if len(bp.pages) < bp.cap {
+		return nil
 	}
 
-	bp.pages[file.pageKey(pageNo)] = read
-	bp.queue = append(bp.queue, file.pageKey(pageNo))
-	return read, nil
+	for k, v := range bp.pages {
+		if !v.isDirty() {
+			delete(bp.pages, k)
+			return nil
+		}
+	}
+	return fmt.Errorf("GetPage: buffer pool is full of dirty pages, cannot evict any page")
+
 }

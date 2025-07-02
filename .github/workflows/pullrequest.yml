@@ -31,7 +31,10 @@ jobs:
         run: go mod download
 
       - name: Tuple
-        run: cd godb && go test -run TestTuple
+        run: cd godb && go test -v -run TestTuple
 
       - name: HeapPage
-        run: cd godb && go test -run TestHeapPage
+        run: cd godb && go test -v -run TestHeapPage
+      
+      - name: HeapFile
+        run: cd godb && go test -v -run TestHeapFile

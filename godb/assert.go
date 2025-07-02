@@ -2,6 +2,7 @@ package godb
 
 import (
 	"fmt"
+	"os"
 	"strings"
 )
 
@@ -20,4 +21,9 @@ func min(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil || !os.IsNotExist(err)
 }
