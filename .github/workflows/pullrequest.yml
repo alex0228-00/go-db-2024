@@ -2,7 +2,7 @@ name: Go Test
 
 on:
   pull_request:
-    branches: [ main, lab1 ]
+    branches: [main, lab1]
 
 jobs:
   tuple:
@@ -15,7 +15,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.21' 
+          go-version: "1.21"
 
       - name: Cache Go modules
         uses: actions/cache@v4
@@ -35,9 +35,12 @@ jobs:
 
       - name: HeapPage
         run: cd godb && go test -v -run TestHeapPage
-      
+
       - name: HeapFile
         run: cd godb && go test -v -run TestHeapFile
-      
+
+      - name: BufPool
+        run: cd godb && go test -v -run TestBufferPool
+
       - name: FilterOp
         run: cd godb && go test -v -run TestFilter
