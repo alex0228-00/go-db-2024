@@ -38,3 +38,6 @@ jobs:
       
       - name: HeapFile
         run: cd godb && go test -v -run TestHeapFile
+      
+      - name: FilterOp
+        run: cd godb && go test -v -run TestFilter
