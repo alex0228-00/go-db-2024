@@ -19,18 +19,30 @@ const (
 
 type BufferPool struct {
 	// TODO: some code goes here
+	cap   int
+	pages map[any]Page
 }
 
 // Create a new BufferPool with the specified number of pages
 func NewBufferPool(numPages int) (*BufferPool, error) {
-	return &BufferPool{}, fmt.Errorf("NewBufferPool not implemented")
+	return &BufferPool{
+		cap:   numPages,
+		pages: make(map[any]Page, numPages),
+	}, nil
 }
 
 // Testing method -- iterate through all pages in the buffer pool
 // and flush them using [DBFile.flushPage]. Does not need to be thread/transaction safe.
 // Mark pages as not dirty after flushing them.
 func (bp *BufferPool) FlushAllPages() {
-	// TODO: some code goes here
+	for _, page := range bp.pages {
+		if page.isDirty() {
+			err := page.getFile().flushPage(page)
+
+			assert(err == nil, "FlushAllPages: error flushing page: %v", err)
+			page.setDirty(0, false)
+		}
+	}
 }
 
 // Abort the transaction, releasing locks. Because GoDB is FORCE/NO STEAL, none
@@ -69,5 +81,35 @@ func (bp *BufferPool) BeginTransaction(tid TransactionID) error {
 // implement locking or deadlock detection. You will likely want to store a list
 // of pages in the BufferPool in a map keyed by the [DBFile.pageKey].
 func (bp *BufferPool) GetPage(file DBFile, pageNo int, tid TransactionID, perm RWPerm) (Page, error) {
-	return nil, fmt.Errorf("GetPage not implemented")
+	ret, ok := bp.pages[file.pageKey(pageNo)]
+	if ok {
+		return ret, nil
+	}
+
+	if err := bp.evictPageIfNeed(); err != nil {
+		return nil, fmt.Errorf("GetPage: buffer pool is full, cannot evict any page: %w", err)
+	}
+
+	read, err := file.readPage(pageNo)
+	if err != nil {
+		return nil, fmt.Errorf("GetPage: error reading page %d from file: %w", pageNo, err)
+	}
+
+	bp.pages[file.pageKey(pageNo)] = read
+	return read, nil
+}
+
+func (bp *BufferPool) evictPageIfNeed() error {
+	if len(bp.pages) < bp.cap {
+		return nil
+	}
+
+	for k, v := range bp.pages {
+		if !v.isDirty() {
+			delete(bp.pages, k)
+			return nil
+		}
+	}
+	return fmt.Errorf("GetPage: buffer pool is full of dirty pages, cannot evict any page")
+
 }

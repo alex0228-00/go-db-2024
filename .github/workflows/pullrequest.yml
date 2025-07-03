@@ -1,0 +1,40 @@
+name: Go Test
+
+on:
+  pull_request:
+    branches: [ main, lab1 ]
+
+jobs:
+  tuple:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21' 
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Install dependencies
+        run: go mod download
+
+      - name: Tuple
+        run: cd godb && go test -v -run TestTuple
+
+      - name: HeapPage
+        run: cd godb && go test -v -run TestHeapPage
+      
+      - name: HeapFile
+        run: cd godb && go test -v -run TestHeapFile

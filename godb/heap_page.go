@@ -3,6 +3,8 @@ package godb
 import (
 	"bytes"
 	"fmt"
+
+	"github.com/bits-and-blooms/bitset"
 )
 
 /* HeapPage implements the Page interface for pages of HeapFiles. We have
@@ -48,50 +50,104 @@ dirty page, it's OK if tuples are renumbered when they are written back to disk.
 */
 
 type heapPage struct {
-	// TODO: some code goes here
+	f       *HeapFile
+	desc    *TupleDesc
+	pageNo  int
+	ntuples int // number of tuples on the page
+
+	dirty    bool
+	tuples   map[int]*Tuple
+	freelist *FreeList
 }
 
 // Construct a new heap page
 func newHeapPage(desc *TupleDesc, pageNo int, f *HeapFile) (*heapPage, error) {
-	// TODO: some code goes here
-	return &heapPage{}, fmt.Errorf("newHeapPage is not implemented") //replace me
+	page := &heapPage{
+		f:      f,
+		desc:   desc,
+		pageNo: pageNo,
+		tuples: make(map[int]*Tuple),
+		dirty:  false,
+	}
+
+	ntuples := page.calTupleSize(desc)
+	if ntuples < 0 {
+		return nil, fmt.Errorf("tuple size exceeds page size")
+	}
+
+	page.ntuples = ntuples
+	page.freelist = NewFreeList(ntuples)
+	return page, nil
+}
+
+func (h *heapPage) calTupleSize(desc *TupleDesc) int {
+	size := desc.Size()
+	ntuples := PageSize / size
+
+	for ; ntuples > 0; ntuples-- {
+		total := ntuples*size + 8*(divide(ntuples, 64)+1)
+		if total <= PageSize {
+			return ntuples
+		}
+	}
+
+	return -1
 }
 
 func (h *heapPage) getNumSlots() int {
-	// TODO: some code goes here
-	return 0 //replace me
+	return h.ntuples
+}
+
+func (h *heapPage) getFreeSlot() int {
+	if h.freelist.IsFull() {
+		return -1 // no free slots available
+	}
+	return h.freelist.GetSlot()
 }
 
 // Insert the tuple into a free slot on the page, or return an error if there are
 // no free slots.  Set the tuples rid and return it.
 func (h *heapPage) insertTuple(t *Tuple) (recordID, error) {
-	// TODO: some code goes here
-	return 0, fmt.Errorf("insertTuple not implemented") //replace me
+	if h.freelist.IsFull() {
+		return nil, fmt.Errorf("no free slots available")
+	}
+
+	slot := h.getFreeSlot()
+
+	h.tuples[slot] = t
+	h.dirty = true
+
+	t.Rid = &RecordId{PageNo: h.pageNo, Slot: slot}
+	return t.Rid, nil
 }
 
 // Delete the tuple at the specified record ID, or return an error if the ID is
 // invalid.
 func (h *heapPage) deleteTuple(rid recordID) error {
-	// TODO: some code goes here
-	return fmt.Errorf("deleteTuple not implemented") //replace me
+	index := rid.(*RecordId)
+	assert(index.PageNo == h.pageNo, "record ID does not match page number")
+
+	if err := h.freelist.ReleaseSlot(index.Slot); err != nil {
+		return fmt.Errorf("error releasing slot: %v", err)
+	}
+	h.dirty = true
+	return nil
 }
 
 // Page method - return whether or not the page is dirty
 func (h *heapPage) isDirty() bool {
-	// TODO: some code goes here
-	return false //replace me
+	return h.dirty
 }
 
 // Page method - mark the page as dirty
 func (h *heapPage) setDirty(tid TransactionID, dirty bool) {
-	// TODO: some code goes here
+	h.dirty = dirty
 }
 
 // Page method - return the corresponding HeapFile
 // for this page.
 func (p *heapPage) getFile() DBFile {
-	// TODO: some code goes here
-	return nil //replace me
+	return p.f
 }
 
 // Allocate a new bytes.Buffer and write the heap page to it. Returns an error
@@ -100,22 +156,153 @@ func (p *heapPage) getFile() DBFile {
 // the binary.Write method in LittleEndian order, followed by the tuples of the
 // page, written using the Tuple.writeTo method.
 func (h *heapPage) toBuffer() (*bytes.Buffer, error) {
-	// TODO: some code goes here
-	return nil, fmt.Errorf("heap_page.toBuffer not implemented") //replace me
+	buf := bytes.NewBuffer(make([]byte, 0, PageSize))
+
+	w, err := h.freelist.WriteTo(buf)
+	if err != nil {
+		return nil, fmt.Errorf("error writing freelist: %v", err)
+	}
+
+	writed := int(w)
+	for i := 0; i < h.ntuples; i++ {
+		if h.freelist.Test(i) {
+			t, ok := h.tuples[i]
+			assert(ok, "tuple not found for slot %d", i)
+
+			if err := t.writeTo(buf); err != nil {
+				return nil, fmt.Errorf("error writing tuple to buffer: %v", err)
+			}
+			writed += t.Desc.Size()
+		}
+	}
+
+	left := PageSize - writed
+	if left > 0 {
+		if n, err := buf.Write(make([]byte, left)); err != nil {
+			return nil, fmt.Errorf("error writing padding to buffer: %v", err)
+		} else if n != left {
+			return nil, fmt.Errorf("expected to write %d bytes, but wrote %d", left, n)
+		}
+	}
+
+	return buf, nil
 }
 
 // Read the contents of the HeapPage from the supplied buffer.
 func (h *heapPage) initFromBuffer(buf *bytes.Buffer) error {
-	// TODO: some code goes here
-	return fmt.Errorf("initFromBuffer not implemented") //replace me
+	read, err := h.freelist.ReadFrom(buf)
+	if err != nil {
+		return fmt.Errorf("error initializing freelist from buffer: %v", err)
+	}
+
+	for i := 0; i < h.ntuples; i++ {
+		if h.freelist.Test(i) {
+			t, err := readTupleFrom(buf, h.desc)
+			if err != nil {
+				return fmt.Errorf("error reading tuple from buffer: %v", err)
+			}
+			h.tuples[i] = t
+			read += h.desc.Size()
+		}
+	}
+
+	left := PageSize - read
+	if left > 0 {
+		buf.Truncate(left)
+	}
+
+	return nil
 }
 
 // Return a function that iterates through the tuples of the heap page.  Be sure
 // to set the rid of the tuple to the rid struct of your choosing beforing
 // return it. Return nil, nil when the last tuple is reached.
 func (p *heapPage) tupleIter() func() (*Tuple, error) {
-	// TODO: some code goes here
+	cur := -1
 	return func() (*Tuple, error) {
-	return nil, fmt.Errorf("heap_file.Iterator not implemented") // replace me
+		for {
+			cur++
+			if cur >= p.getNumSlots() {
+				return nil, nil
+			}
+			if p.freelist.Test(cur) {
+				t, ok := p.tuples[cur]
+				assert(ok, "tuple not found for slot %d", cur)
+				return t, nil
+			}
+		}
 	}
+}
+
+type FreeList struct {
+	bitmap    *bitset.BitSet
+	available []int
+}
+
+func NewFreeList(n int) *FreeList {
+	free := &FreeList{
+		bitmap:    bitset.New(uint(n)),
+		available: make([]int, 0, n),
+	}
+
+	for i := 0; i < n; i++ {
+		free.available = append(free.available, i)
+	}
+	return free
+}
+
+func (free *FreeList) ReadFrom(buf *bytes.Buffer) (int, error) {
+	read, err := free.bitmap.ReadFrom(buf)
+	if err != nil {
+		return -1, fmt.Errorf("error reading bitmap from buffer: %v", err)
+	}
+
+	for i := 0; i < int(free.bitmap.Len()); i++ {
+		if !free.bitmap.Test(uint(i)) {
+			free.available = append(free.available, i)
+		}
+	}
+	return int(read), nil
+}
+
+func (free *FreeList) Test(n int) bool {
+	return free.bitmap.Test(uint(n))
+}
+
+func (free *FreeList) IsFull() bool {
+	return len(free.available) == 0
+}
+
+func (free *FreeList) GetSlot() int {
+	assert(!free.IsFull(), "FreeList is full, cannot get slot")
+
+	slot := free.available[0]
+	free.available = free.available[1:]
+
+	free.bitmap.Set(uint(slot))
+	return slot
+}
+
+func (free *FreeList) ReleaseSlot(slot int) error {
+	assert(slot >= 0 && slot < int(free.bitmap.Len()), "Invalid slot number")
+
+	if !free.bitmap.Test(uint(slot)) {
+		return fmt.Errorf("slot %d is already free", slot)
+	}
+
+	free.bitmap.Clear(uint(slot))
+	free.available = append(free.available, slot)
+	return nil
+}
+
+func (free *FreeList) WriteTo(buf *bytes.Buffer) (int64, error) {
+	return free.bitmap.WriteTo(buf)
+}
+
+func divide(a int, b int) int {
+	ret := a / b
+	if a%b != 0 {
+		ret++
+	}
+	return ret
 }

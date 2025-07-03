@@ -243,7 +243,7 @@ func TestHeapFileSize(t *testing.T) {
 	tid := NewTID()
 	bp.BeginTransaction(tid)
 	hf.insertTuple(&t1, tid)
-	page, err := bp.GetPage(hf, 0, tid, ReadPerm)
+	page, err := bp.GetPage(hf, 1, tid, ReadPerm)
 	if err != nil {
 		t.Fatalf("unexpected error, getPage, %s", err.Error())
 	}
@@ -265,7 +265,7 @@ func TestHeapFileSetDirty(t *testing.T) {
 	_, t1, _, hf, bp, tid := makeTestVars(t)
 	for i := 0; i < 308; i++ {
 		err := hf.insertTuple(&t1, tid)
-		if err != nil && (i == 306 || i == 307) {
+		if err != nil && (i == 303 || i == 307) {
 			return
 		} else if err != nil {
 			t.Fatalf("%v", err)
@@ -282,7 +282,7 @@ func TestHeapFileDirtyBit(t *testing.T) {
 	bp.BeginTransaction(tid)
 	hf.insertTuple(&t1, tid)
 	hf.insertTuple(&t1, tid)
-	page, _ := bp.GetPage(hf, 0, tid, ReadPerm)
+	page, _ := bp.GetPage(hf, 1, tid, ReadPerm)
 	if !page.isDirty() {
 		t.Fatalf("Expected page to be dirty")
 	}
