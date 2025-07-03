@@ -2,8 +2,9 @@ package godb
 
 import (
 	"bytes"
-	"encoding/binary"
 	"fmt"
+
+	"github.com/bits-and-blooms/bitset"
 )
 
 /* HeapPage implements the Page interface for pages of HeapFiles. We have
@@ -48,12 +49,11 @@ dirty page, it's OK if tuples are renumbered when they are written back to disk.
 
 */
 
-const MaxSlotPerPage = 64
-
 type heapPage struct {
-	f      *HeapFile
-	desc   *TupleDesc
-	pageNo int
+	f       *HeapFile
+	desc    *TupleDesc
+	pageNo  int
+	ntuples int // number of tuples on the page
 
 	dirty    bool
 	tuples   map[int]*Tuple
@@ -63,18 +63,39 @@ type heapPage struct {
 // Construct a new heap page
 func newHeapPage(desc *TupleDesc, pageNo int, f *HeapFile) (*heapPage, error) {
 	page := &heapPage{
-		f:        f,
-		desc:     desc,
-		pageNo:   pageNo,
-		tuples:   make(map[int]*Tuple),
-		dirty:    false,
-		freelist: NewFreeList(),
+		f:      f,
+		desc:   desc,
+		pageNo: pageNo,
+		tuples: make(map[int]*Tuple),
+		dirty:  false,
 	}
+
+	ntuples := page.calTupleSize(desc)
+	if ntuples < 0 {
+		return nil, fmt.Errorf("tuple size exceeds page size")
+	}
+
+	page.ntuples = ntuples
+	page.freelist = NewFreeList(ntuples)
 	return page, nil
 }
 
+func (h *heapPage) calTupleSize(desc *TupleDesc) int {
+	size := desc.Size()
+	ntuples := PageSize / size
+
+	for ; ntuples > 0; ntuples-- {
+		total := ntuples*size + 8*(divide(ntuples, 64)+1)
+		if total <= PageSize {
+			return ntuples
+		}
+	}
+
+	return -1
+}
+
 func (h *heapPage) getNumSlots() int {
-	return min((PageSize-h.freelist.Size())/h.desc.Size(), MaxSlotPerPage)
+	return h.ntuples
 }
 
 func (h *heapPage) getFreeSlot() int {
@@ -137,12 +158,13 @@ func (p *heapPage) getFile() DBFile {
 func (h *heapPage) toBuffer() (*bytes.Buffer, error) {
 	buf := bytes.NewBuffer(make([]byte, 0, PageSize))
 
-	if err := h.freelist.WriteTo(buf); err != nil {
+	w, err := h.freelist.WriteTo(buf)
+	if err != nil {
 		return nil, fmt.Errorf("error writing freelist: %v", err)
 	}
 
-	writed := h.freelist.Size() // size of the freelist header
-	for i := 0; i < MaxSlotPerPage; i++ {
+	writed := int(w)
+	for i := 0; i < h.ntuples; i++ {
 		if h.freelist.Test(i) {
 			t, ok := h.tuples[i]
 			assert(ok, "tuple not found for slot %d", i)
@@ -168,14 +190,12 @@ func (h *heapPage) toBuffer() (*bytes.Buffer, error) {
 
 // Read the contents of the HeapPage from the supplied buffer.
 func (h *heapPage) initFromBuffer(buf *bytes.Buffer) error {
-	freelist, err := NewFreeListFromBuf(buf)
+	read, err := h.freelist.ReadFrom(buf)
 	if err != nil {
 		return fmt.Errorf("error initializing freelist from buffer: %v", err)
 	}
-	h.freelist = freelist
 
-	read := h.freelist.Size()
-	for i := 0; i < MaxSlotPerPage; i++ {
+	for i := 0; i < h.ntuples; i++ {
 		if h.freelist.Test(i) {
 			t, err := readTupleFrom(buf, h.desc)
 			if err != nil {
@@ -202,7 +222,7 @@ func (p *heapPage) tupleIter() func() (*Tuple, error) {
 	return func() (*Tuple, error) {
 		for {
 			cur++
-			if cur >= MaxSlotPerPage {
+			if cur >= p.getNumSlots() {
 				return nil, nil
 			}
 			if p.freelist.Test(cur) {
@@ -215,73 +235,74 @@ func (p *heapPage) tupleIter() func() (*Tuple, error) {
 }
 
 type FreeList struct {
-	bitmap uint64
-	free   []int
+	bitmap    *bitset.BitSet
+	available []int
 }
 
-func NewFreeList() *FreeList {
+func NewFreeList(n int) *FreeList {
 	free := &FreeList{
-		free: make([]int, 0, MaxSlotPerPage), // preallocate space for 64 slots
+		bitmap:    bitset.New(uint(n)),
+		available: make([]int, 0, n),
 	}
 
-	for i := 0; i < MaxSlotPerPage; i++ {
-		free.free = append(free.free, i)
+	for i := 0; i < n; i++ {
+		free.available = append(free.available, i)
 	}
 	return free
 }
 
-func NewFreeListFromBuf(buf *bytes.Buffer) (*FreeList, error) {
-	free := &FreeList{}
-
-	if err := binary.Read(buf, binary.LittleEndian, &free.bitmap); err != nil {
-		return nil, fmt.Errorf("error reading bitmap: %v", err)
+func (free *FreeList) ReadFrom(buf *bytes.Buffer) (int, error) {
+	read, err := free.bitmap.ReadFrom(buf)
+	if err != nil {
+		return -1, fmt.Errorf("error reading bitmap from buffer: %v", err)
 	}
 
-	for i := 0; i < MaxSlotPerPage; i++ {
-		if (free.bitmap & (1 << i)) == 0 {
-			free.free = append(free.free, i)
+	for i := 0; i < int(free.bitmap.Len()); i++ {
+		if !free.bitmap.Test(uint(i)) {
+			free.available = append(free.available, i)
 		}
 	}
-	return free, nil
+	return int(read), nil
 }
 
 func (free *FreeList) Test(n int) bool {
-	return (free.bitmap & (1 << n)) != 0
+	return free.bitmap.Test(uint(n))
 }
 
 func (free *FreeList) IsFull() bool {
-	return free.bitmap == 0xFFFFFFFFFFFFFFFF
+	return len(free.available) == 0
 }
 
 func (free *FreeList) GetSlot() int {
 	assert(!free.IsFull(), "FreeList is full, cannot get slot")
 
-	slot := free.free[0]
-	free.free = free.free[1:]
+	slot := free.available[0]
+	free.available = free.available[1:]
 
-	free.bitmap |= (1 << slot)
+	free.bitmap.Set(uint(slot))
 	return slot
 }
 
 func (free *FreeList) ReleaseSlot(slot int) error {
-	assert(slot >= 0 && slot < MaxSlotPerPage, "Invalid slot number")
+	assert(slot >= 0 && slot < int(free.bitmap.Len()), "Invalid slot number")
 
-	if (free.bitmap & (1 << slot)) == 0 {
+	if !free.bitmap.Test(uint(slot)) {
 		return fmt.Errorf("slot %d is already free", slot)
 	}
 
-	free.bitmap &^= (1 << slot)         // Clear the bit for the slot
-	free.free = append(free.free, slot) // Add the slot back to the free list
+	free.bitmap.Clear(uint(slot))
+	free.available = append(free.available, slot)
 	return nil
 }
 
-func (free *FreeList) WriteTo(buf *bytes.Buffer) error {
-	if err := binary.Write(buf, binary.LittleEndian, free.bitmap); err != nil {
-		return fmt.Errorf("error writing bitmap: %v", err)
+func (free *FreeList) WriteTo(buf *bytes.Buffer) (int64, error) {
+	return free.bitmap.WriteTo(buf)
+}
+
+func divide(a int, b int) int {
+	ret := a / b
+	if a%b != 0 {
+		ret++
 	}
-	return nil
-}
-
-func (free *FreeList) Size() int {
-	return 8 // Size of uint64 in bytes
+	return ret
 }

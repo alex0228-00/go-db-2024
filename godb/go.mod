@@ -11,6 +11,7 @@ require (
 )
 
 require (
+	github.com/bits-and-blooms/bitset v1.22.0
 	github.com/d4l3k/messagediff v1.2.1 // indirect
 	github.com/stretchr/testify v1.10.0
 	github.com/tylertreat/BoomFilters v0.0.0-20210315201527-1a82519a3e43

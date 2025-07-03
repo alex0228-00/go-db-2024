@@ -265,7 +265,7 @@ func TestHeapFileSetDirty(t *testing.T) {
 	_, t1, _, hf, bp, tid := makeTestVars(t)
 	for i := 0; i < 308; i++ {
 		err := hf.insertTuple(&t1, tid)
-		if err != nil && (i == 306 || i == 307) {
+		if err != nil && (i == 303 || i == 307) {
 			return
 		} else if err != nil {
 			t.Fatalf("%v", err)
