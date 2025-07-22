@@ -5,7 +5,7 @@ on:
     branches: [ main, lab1 ]
 
 jobs:
-  tuple:
+  Unit-test:
     runs-on: ubuntu-latest
 
     steps:

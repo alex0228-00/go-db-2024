@@ -1,7 +1,7 @@
 package godb
 
 import (
-"fmt"
+	"fmt"
 )
 
 type EqualityJoin struct {
