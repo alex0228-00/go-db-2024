@@ -5,7 +5,7 @@ on:
     branches: [main, lab1]
 
 jobs:
-  tuple:
+  Unit-test:
     runs-on: ubuntu-latest
 
     steps:
@@ -44,3 +44,6 @@ jobs:
 
       - name: FilterOp
         run: cd godb && go test -v -run TestFilter
+
+      - name: JoinOp
+        run: cd godb && go test -v -run TestJoin

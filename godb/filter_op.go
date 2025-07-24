@@ -33,21 +33,21 @@ func (f *Filter) Descriptor() *TupleDesc {
 func (f *Filter) Iterator(tid TransactionID) (func() (*Tuple, error), error) {
 	iter, err := f.child.Iterator(tid)
 	if err != nil {
-		return nil, fmt.Errorf("Filter.Iterator: %w", err)
+		return nil, fmt.Errorf("fail to get iterator: %w", err)
 	}
 	right, _ := f.right.EvalExpr(nil)
 	return func() (*Tuple, error) {
 		for {
 			tup, err := iter()
 			if err != nil {
-				return nil, fmt.Errorf("Filter.Iterator: %w", err)
+				return nil, fmt.Errorf("fail to run iter for childern operator: %w", err)
 			}
 			if tup == nil {
 				return nil, nil
 			}
 
 			if val, err := f.left.EvalExpr(tup); err != nil {
-				return nil, fmt.Errorf("Filter.Iterator: %w", err)
+				return nil, fmt.Errorf("fail to run left EvalExpr: %w", err)
 			} else if val.EvalPred(right, f.op) {
 				return tup, nil
 			}
