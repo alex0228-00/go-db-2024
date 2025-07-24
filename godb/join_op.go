@@ -2,7 +2,6 @@ package godb
 
 import (
 	"fmt"
-	"log"
 )
 
 type EqualityJoin struct {
@@ -50,60 +49,104 @@ func (hj *EqualityJoin) Descriptor() *TupleDesc {
 // out. To pass this test, you will need to use something other than a nested
 // loops join.
 func (joinOp *EqualityJoin) Iterator(tid TransactionID) (func() (*Tuple, error), error) {
+	var (
+		iter func() (*Tuple, error)
+	)
+
 	leftIter, err := (*joinOp.left).Iterator(tid)
 	if err != nil {
 		return nil, fmt.Errorf("Error getting left iterator: %v", err)
 	}
 
-	var (
-		rightIter func() (*Tuple, error)
-		leftTuple *Tuple
-		n         = 0
-	)
 	return func() (*Tuple, error) {
 		for {
-			if leftTuple == nil {
-				n++
-				log.Printf("Processing left tuple %d", n)
-				t, err := leftIter()
+			if iter == nil {
+				records, err := batchLoad(joinOp.maxBufferSize, leftIter, joinOp.leftField)
 				if err != nil {
-					return nil, fmt.Errorf("Error iterating left: %v", err)
+					return nil, fmt.Errorf("Error loading left batch: %v", err)
 				}
-				if t == nil {
+				if len(records) == 0 {
 					return nil, nil
 				}
-				leftTuple = t
-			}
 
-			if rightIter == nil {
-				rightIter, err = (*joinOp.right).Iterator(tid)
+				iter, err = joinOp.iterBatch(tid, records)
 				if err != nil {
-					return nil, fmt.Errorf("Error getting right iterator: %v", err)
+					return nil, fmt.Errorf("Error getting batch iterator: %v", err)
 				}
 			}
 
-			rightTuple, err := rightIter()
+			t, err := iter()
 			if err != nil {
-				return nil, fmt.Errorf("Error iterating right: %v", err)
+				return nil, fmt.Errorf("Error iterating: %v", err)
 			}
-
-			if rightTuple == nil {
-				rightIter = nil
-				leftTuple = nil
+			if t == nil {
+				iter = nil
 				continue
 			}
-
-			leftValue, err := joinOp.leftField.EvalExpr(leftTuple)
-			if err != nil {
-				return nil, fmt.Errorf("Error evaluating left field: %v", err)
-			}
-			rightValue, err := joinOp.rightField.EvalExpr(rightTuple)
-			if err != nil {
-				return nil, fmt.Errorf("Error evaluating right field: %v", err)
-			}
-			if leftValue.EvalPred(rightValue, OpEq) {
-				return joinTuples(leftTuple, rightTuple), nil
-			}
+			return t, nil
 		}
 	}, nil
+}
+
+func (joinOp *EqualityJoin) iterBatch(tid TransactionID, batch map[DBValue][]*Tuple) (func() (*Tuple, error), error) {
+	rightIter, err := (*joinOp.right).Iterator(tid)
+	if err != nil {
+		return nil, fmt.Errorf("Error getting right iterator: %v", err)
+	}
+
+	var (
+		left  []*Tuple
+		right *Tuple
+	)
+
+	return func() (*Tuple, error) {
+		for {
+			if len(left) == 0 {
+				t, err := rightIter()
+				if err != nil {
+					return nil, fmt.Errorf("Error iterating right: %v", err)
+				} else if t == nil {
+					return nil, nil
+				}
+
+				value, err := joinOp.rightField.EvalExpr(t)
+				if err != nil {
+					return nil, fmt.Errorf("Error evaluating right field: %v", err)
+				}
+
+				tuples, ok := batch[value]
+				if !ok {
+					continue
+				}
+
+				assert(len(tuples) > 0, "Expected at least one left tuple for value %v", value)
+				left = tuples
+				right = t
+			}
+
+			cur := left[0]
+			left = left[1:]
+			return joinTuples(cur, right), nil
+
+		}
+	}, nil
+}
+
+func batchLoad(n int, iter func() (*Tuple, error), expr Expr) (map[DBValue][]*Tuple, error) {
+	ret := make(map[DBValue][]*Tuple, n)
+	for i := 0; i < n; i++ {
+		tup, err := iter()
+		if err != nil {
+			return nil, fmt.Errorf("Error iterating: %v", err)
+		}
+		if tup == nil {
+			break
+		}
+		val, err := expr.EvalExpr(tup)
+		if err != nil {
+			return nil, fmt.Errorf("Error evaluating field: %v", err)
+		}
+		ret[val] = append(ret[val], tup)
+	}
+	return ret, nil
 }

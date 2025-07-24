@@ -41,3 +41,6 @@ jobs:
       
       - name: FilterOp
         run: cd godb && go test -v -run TestFilter
+
+      - name: JoinOp
+        run: cd godb && go test -v -run TestJoin
