@@ -111,5 +111,17 @@ func (bp *BufferPool) evictPageIfNeed() error {
 		}
 	}
 	return fmt.Errorf("GetPage: buffer pool is full of dirty pages, cannot evict any page")
+}
 
+func (bp *BufferPool) CreateNewPage(file *HeapFile, tid TransactionID) (*heapPage, error) {
+	if err := bp.evictPageIfNeed(); err != nil {
+		return nil, fmt.Errorf("CreateNewPage: buffer pool is full, cannot evict any page: %w", err)
+	}
+
+	hp, err := file.createNewPage()
+	if err != nil {
+		return nil, fmt.Errorf("CreateNewPage: error creating new page in file %s: %w", file.fromFile, err)
+	}
+	bp.pages[file.pageKey(hp.pageNo)] = hp
+	return hp, nil
 }

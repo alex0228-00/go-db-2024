@@ -133,10 +133,8 @@ func (f *HeapFile) LoadFromCSV(file *os.File, hasHeader bool, sep string, skipLa
 // using the [heapPage.initFromBuffer] method.
 func (f *HeapFile) readPage(pageNo int) (Page, error) {
 	assert(pageNo >= 0, "readPage: pageNo %d is less than 0", pageNo)
-
 	if pageNo > f.NumPages() {
-		assert(pageNo == f.NumPages()+1, "readPage: pageNo %d is greater than number of pages %d", pageNo, f.NumPages())
-		return f.createNewPage()
+		return nil, fmt.Errorf("readPage: pageNo %d is greater than number of pages %d", pageNo, f.NumPages())
 	}
 
 	file, err := os.OpenFile(f.fromFile, os.O_CREATE|os.O_RDWR, 0666)
@@ -206,6 +204,9 @@ func (f *HeapFile) getFreePage(tid TransactionID, perm RWPerm) (*heapPage, error
 	steps := []func(tid TransactionID, perm RWPerm) (*heapPage, error){
 		f.getPageFromFreeList,
 		f.getFreePageFromCurrentPages,
+		func(tid TransactionID, perm RWPerm) (*heapPage, error) {
+			return f.bufPool.CreateNewPage(f, tid)
+		},
 	}
 
 	for _, step := range steps {
@@ -252,7 +253,7 @@ func (f *HeapFile) getPageFromFreeList(tid TransactionID, perm RWPerm) (*heapPag
 }
 
 func (f *HeapFile) getFreePageFromCurrentPages(tid TransactionID, perm RWPerm) (*heapPage, error) {
-	for i := 1; i <= f.NumPages()+1; i++ {
+	for i := 1; i <= f.NumPages(); i++ {
 		if _, ok := f.full[i]; ok {
 			continue
 		}

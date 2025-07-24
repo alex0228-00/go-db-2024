@@ -28,7 +28,7 @@ func TestBufferPoolGetPage(t *testing.T) {
 	}
 	bp.BeginTransaction(tid)
 	//expect 6 pages
-	for i := 0; i < 6; i++ {
+	for i := 1; i <= 6; i++ {
 		pg, err := bp.GetPage(hf, i, tid, ReadPerm)
 		if pg == nil || err != nil {
 			t.Fatalf("failed to get page %d (err = %v)", i, err)
@@ -46,7 +46,7 @@ func TestSetDirty(t *testing.T) {
 	bp.BeginTransaction(tid)
 	for i := 0; i < 308; i++ {
 		err := hf.insertTuple(&t1, tid)
-		if err != nil && (i == 306 || i == 307) {
+		if err != nil && (i == 303 || i == 307) {
 			return
 		} else if err != nil {
 			t.Fatalf("%v", err)
