@@ -2,6 +2,7 @@ package godb
 
 import (
 	"fmt"
+	"log"
 )
 
 type EqualityJoin struct {
@@ -28,8 +29,7 @@ func NewJoin(left Operator, leftField Expr, right Operator, rightField Expr, max
 //
 // HINT: use [TupleDesc.merge].
 func (hj *EqualityJoin) Descriptor() *TupleDesc {
-	// TODO: some code goes here
-	return &TupleDesc{} // replace me
+	return (*hj.left).Descriptor().merge((*hj.right).Descriptor())
 }
 
 // Join operator implementation. This function should iterate over the results
@@ -50,6 +50,60 @@ func (hj *EqualityJoin) Descriptor() *TupleDesc {
 // out. To pass this test, you will need to use something other than a nested
 // loops join.
 func (joinOp *EqualityJoin) Iterator(tid TransactionID) (func() (*Tuple, error), error) {
-	// TODO: some code goes here
-	return nil, fmt.Errorf("EqualityJoin.Iterator not implemented") // replace me
+	leftIter, err := (*joinOp.left).Iterator(tid)
+	if err != nil {
+		return nil, fmt.Errorf("Error getting left iterator: %v", err)
+	}
+
+	var (
+		rightIter func() (*Tuple, error)
+		leftTuple *Tuple
+		n         = 0
+	)
+	return func() (*Tuple, error) {
+		for {
+			if leftTuple == nil {
+				n++
+				log.Printf("Processing left tuple %d", n)
+				t, err := leftIter()
+				if err != nil {
+					return nil, fmt.Errorf("Error iterating left: %v", err)
+				}
+				if t == nil {
+					return nil, nil
+				}
+				leftTuple = t
+			}
+
+			if rightIter == nil {
+				rightIter, err = (*joinOp.right).Iterator(tid)
+				if err != nil {
+					return nil, fmt.Errorf("Error getting right iterator: %v", err)
+				}
+			}
+
+			rightTuple, err := rightIter()
+			if err != nil {
+				return nil, fmt.Errorf("Error iterating right: %v", err)
+			}
+
+			if rightTuple == nil {
+				rightIter = nil
+				leftTuple = nil
+				continue
+			}
+
+			leftValue, err := joinOp.leftField.EvalExpr(leftTuple)
+			if err != nil {
+				return nil, fmt.Errorf("Error evaluating left field: %v", err)
+			}
+			rightValue, err := joinOp.rightField.EvalExpr(rightTuple)
+			if err != nil {
+				return nil, fmt.Errorf("Error evaluating right field: %v", err)
+			}
+			if leftValue.EvalPred(rightValue, OpEq) {
+				return joinTuples(leftTuple, rightTuple), nil
+			}
+		}
+	}, nil
 }
