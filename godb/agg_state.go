@@ -1,7 +1,7 @@
 package godb
 
 import (
-"fmt"
+	"fmt"
 )
 
 // interface for an aggregation state
@@ -66,132 +66,154 @@ func (a *CountAggState) GetTupleDesc() *TupleDesc {
 
 // Implements the aggregation state for SUM
 type SumAggState struct {
-	// TODO: some code goes here
-}
-
-func (a *SumAggState) Copy() AggState {
-	// TODO: some code goes here
-	return nil // replace me
-}
-
-func intAggGetter(v DBValue) any {
-	// TODO: some code goes here
-	return nil // replace me
-}
-
-func stringAggGetter(v DBValue) any {
-	// TODO: some code goes here
-	return nil // replace me
+	baseAggState
 }
 
 func (a *SumAggState) Init(alias string, expr Expr) error {
-	// TODO: some code goes here
-	return fmt.Errorf("SumAggState.Init not implemented") // replace me
-}
-
-func (a *SumAggState) AddTuple(t *Tuple) {
-	// TODO: some code goes here
-}
-
-func (a *SumAggState) GetTupleDesc() *TupleDesc {
-	// TODO: some code goes here
-	return &TupleDesc{} // replace me
-}
-
-func (a *SumAggState) Finalize() *Tuple {
-	// TODO: some code goes here
-	return &Tuple{} // replace me
+	a.baseAggState = baseAggState{
+		handleInsert: func(state *baseAggState, val DBValue) {
+			switch v := val.(type) {
+			case IntField:
+				if sum, ok := state.state.(IntField); ok {
+					state.state = IntField{sum.Value + v.Value}
+				}
+			case StringField:
+				if sum, ok := state.state.(StringField); ok {
+					state.state = StringField{sum.Value + v.Value}
+				}
+			default:
+				panic(fmt.Sprintf("SumAggState.AddTuple: unsupported type %T", v))
+			}
+		},
+	}
+	return a.baseAggState.Init(alias, expr)
 }
 
 // Implements the aggregation state for AVG
 // Note that we always AddTuple() at least once before Finalize()
 // so no worries for divide-by-zero
 type AvgAggState struct {
-	// TODO: some code goes here
+	sum *SumAggState
+	n   int
 }
 
 func (a *AvgAggState) Copy() AggState {
-	// TODO: some code goes here
-	return nil // replace me
+	return &AvgAggState{
+		sum: a.sum.Copy().(*SumAggState),
+		n:   a.n,
+	}
 }
 
 func (a *AvgAggState) Init(alias string, expr Expr) error {
-	// TODO: some code goes here
-	return fmt.Errorf("AvgAggState.Init not implemented") // replace me
+	a.sum = &SumAggState{}
+	if err := a.sum.Init(alias, expr); err != nil {
+		return fmt.Errorf("AvgAggState.Init: %w", err)
+	}
+	a.n = 0
+	return nil
 }
 
 func (a *AvgAggState) AddTuple(t *Tuple) {
-	// TODO: some code goes here
+	a.sum.AddTuple(t)
+	a.n++
 }
 
 func (a *AvgAggState) GetTupleDesc() *TupleDesc {
-	// TODO: some code goes here
-	return &TupleDesc{} // replace me
+	return a.sum.GetTupleDesc()
 }
 
 func (a *AvgAggState) Finalize() *Tuple {
-	// TODO: some code goes here
-	return &Tuple{} // replace me
+	t := a.sum.Finalize()
+	if a.n == 0 {
+		return t
+	}
+
+	switch v := t.Fields[0].(type) {
+	case IntField:
+		t.Fields[0] = IntField{v.Value / int64(a.n)}
+	default:
+		panic(fmt.Sprintf("AvgAggState.Finalize: unsupported type %T", v))
+	}
+	return t
 }
 
 // Implements the aggregation state for MAX
 // Note that we always AddTuple() at least once before Finalize()
 // so no worries for NaN max
 type MaxAggState struct {
-	// TODO: some code goes here
-}
-
-func (a *MaxAggState) Copy() AggState {
-	// TODO: some code goes here
-	return nil // replace me
+	baseAggState
 }
 
 func (a *MaxAggState) Init(alias string, expr Expr) error {
-	// TODO: some code goes here
-	return fmt.Errorf("MaxAggState.Init not implemented") // replace me
-}
-
-func (a *MaxAggState) AddTuple(t *Tuple) {
-	// TODO: some code goes here
-}
-
-func (a *MaxAggState) GetTupleDesc() *TupleDesc {
-	// TODO: some code goes here
-	return &TupleDesc{} // replace me
-}
-
-func (a *MaxAggState) Finalize() *Tuple {
-	// TODO: some code goes here
-	return &Tuple{} // replace me
+	a.baseAggState = baseAggState{
+		handleInsert: func(state *baseAggState, val DBValue) {
+			if state.state.EvalPred(val, OpLt) {
+				state.state = val
+			}
+		},
+	}
+	return a.baseAggState.Init(alias, expr)
 }
 
 // Implements the aggregation state for MIN
 // Note that we always AddTuple() at least once before Finalize()
 // so no worries for NaN min
 type MinAggState struct {
-	// TODO: some code goes here
-}
-
-func (a *MinAggState) Copy() AggState {
-	// TODO: some code goes here
-	return nil // replace me
+	baseAggState
 }
 
 func (a *MinAggState) Init(alias string, expr Expr) error {
-	// TODO: some code goes here
-	return fmt.Errorf("MinAggState.Init not implemented") // replace me
+	a.baseAggState = baseAggState{
+		handleInsert: func(state *baseAggState, val DBValue) {
+			if state.state.EvalPred(val, OpGt) {
+				state.state = val
+			}
+		},
+	}
+	return a.baseAggState.Init(alias, expr)
 }
 
-func (a *MinAggState) AddTuple(t *Tuple) {
-	// TODO: some code goes here
+type baseAggState struct {
+	state DBValue
+	alias string
+	expr  Expr
+
+	handleInsert func(state *baseAggState, val DBValue)
 }
 
-func (a *MinAggState) GetTupleDesc() *TupleDesc {
-	// TODO: some code goes here
-	return &TupleDesc{} // replace me
+func (a *baseAggState) Copy() AggState {
+	return &baseAggState{a.state, a.alias, a.expr, a.handleInsert}
 }
 
-func (a *MinAggState) Finalize() *Tuple {
-	// TODO: some code goes here
-	return &Tuple{} // replace me
+func (a *baseAggState) Init(alias string, expr Expr) error {
+	a.state = nil
+	a.expr = expr
+	a.alias = alias
+	return nil
+}
+
+func (a *baseAggState) AddTuple(t *Tuple) {
+	val, err := a.expr.EvalExpr(t)
+	assert(err == nil, "SumAggState.AddTuple: EvalExpr failed")
+
+	if a.state == nil {
+		a.state = val
+	} else {
+		a.handleInsert(a, val)
+	}
+}
+
+func (a *baseAggState) GetTupleDesc() *TupleDesc {
+	return &TupleDesc{
+		Fields: []FieldType{
+			{a.alias, "", a.expr.GetExprType().Ftype},
+		},
+	}
+}
+
+func (a *baseAggState) Finalize() *Tuple {
+	return &Tuple{
+		Desc:   *a.GetTupleDesc(),
+		Fields: []DBValue{a.state},
+	}
 }

@@ -47,3 +47,6 @@ jobs:
 
       - name: JoinOp
         run: cd godb && go test -v -run TestJoin
+      
+      - name: AggOp
+        run: cd godb && go test -v -run TestAgg
