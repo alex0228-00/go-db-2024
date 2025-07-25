@@ -1,25 +1,31 @@
 package godb
 
 import (
-"fmt"
+	"fmt"
 )
 
 type DeleteOp struct {
-	// TODO: some code goes here
+	deleteFile DBFile
+	child      Operator
 }
 
 // Construct a delete operator. The delete operator deletes the records in the
 // child Operator from the specified DBFile.
 func NewDeleteOp(deleteFile DBFile, child Operator) *DeleteOp {
-	// TODO: some code goes here
-	return nil // replace me
+	return &DeleteOp{
+		deleteFile: deleteFile,
+		child:      child,
+	}
 }
 
 // The delete TupleDesc is a one column descriptor with an integer field named
 // "count".
 func (i *DeleteOp) Descriptor() *TupleDesc {
-	// TODO: some code goes here
-	return &TupleDesc{} // replace me
+	return &TupleDesc{
+		Fields: []FieldType{
+			{"count", "", IntType},
+		},
+	}
 
 }
 
@@ -28,6 +34,29 @@ func (i *DeleteOp) Descriptor() *TupleDesc {
 // with a "count" field indicating the number of tuples that were deleted.
 // Tuples should be deleted using the [DBFile.deleteTuple] method.
 func (dop *DeleteOp) Iterator(tid TransactionID) (func() (*Tuple, error), error) {
-	// TODO: some code goes here
-	return nil, fmt.Errorf("DeleteOp.Iterator not implemented") // replace me
+	n := 0
+	iter, err := dop.child.Iterator(tid)
+	if err != nil {
+		return nil, fmt.Errorf("error getting child iterator: %w", err)
+	}
+	return func() (*Tuple, error) {
+		for {
+			tup, err := iter()
+			if err != nil {
+				return nil, fmt.Errorf("error iterating child: %w", err)
+			}
+			if tup == nil {
+				break // no more tuples
+			}
+			err = dop.deleteFile.deleteTuple(tup, tid)
+			if err != nil {
+				return nil, fmt.Errorf("error deleting tuple: %w", err)
+			}
+			n++
+		}
+		return &Tuple{
+			Desc:   *dop.Descriptor(),
+			Fields: []DBValue{IntField{int64(n)}},
+		}, nil
+	}, nil
 }
