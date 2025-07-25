@@ -66,3 +66,6 @@ jobs:
       - name: LimitOp
         run: cd godb && go test -v -run TestLimit
         
+      - name: TestSimpleQuery
+        run: cd godb && go test -v -run TestSimpleQuery
+        
