@@ -50,3 +50,9 @@ jobs:
       
       - name: AggOp
         run: cd godb && go test -v -run TestAgg
+      
+      - name: InsertOp
+        run: cd godb && go test -v -run TestInsert
+      
+      - name: DeleteOp
+        run: cd godb && go test -v -run TestDelete
