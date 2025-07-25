@@ -59,3 +59,10 @@ jobs:
       
       - name: ProjectOp
         run: cd godb && go test -v -run TestProject
+
+      - name: OrderByOp
+        run: cd godb && go test -v -run TestOrderBy
+      
+      - name: LimitOp
+        run: cd godb && go test -v -run TestLimit
+        
