@@ -56,3 +56,6 @@ jobs:
       
       - name: DeleteOp
         run: cd godb && go test -v -run TestDelete
+      
+      - name: ProjectOp
+        run: cd godb && go test -v -run TestProject
