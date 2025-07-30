@@ -15,6 +15,8 @@ type RWPerm int
 const (
 	ReadPerm  RWPerm = iota
 	WritePerm RWPerm = iota
+
+	AllPerm RWPerm = iota
 )
 
 type BufferPool struct {

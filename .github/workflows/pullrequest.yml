@@ -68,4 +68,7 @@ jobs:
         
       - name: TestSimpleQuery
         run: cd godb && go test -v -run TestSimpleQuery
+      
+      - name: LockManager
+        run: cd godb && go test -v -run TestLockManager
         
