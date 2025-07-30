@@ -154,7 +154,41 @@ func (lm *LockManager) doLock(req *LockReq) {
 }
 
 func (lm *LockManager) deadLockCheck(req *LockReq, current *Lock) bool {
-	return false
+	next := make(map[TransactionID]struct{})
+	for _, tid := range current.Tid {
+		next[tid] = struct{}{}
+	}
+
+	return lm._deadLockCheck(next, req.Tid)
+}
+
+func (lm *LockManager) _deadLockCheck(holders map[TransactionID]struct{}, origin TransactionID) bool {
+	if len(holders) == 0 {
+		return false
+	}
+	if _, ok := holders[origin]; ok {
+		return true
+	}
+
+	next := make(map[TransactionID]struct{})
+	for tid := range holders {
+		reqs, ok := lm.waitlist.tidWaitList[tid]
+		if !ok {
+			continue
+		}
+
+		for _, req := range reqs {
+			lock, ok := lm.pages[req.pageKey]
+			assert(ok, fmt.Sprintf("deadlock check for non-locked page %v", req.pageKey))
+
+			for _, tid := range lock.Tid {
+				next[tid] = struct{}{}
+			}
+		}
+	}
+
+	return lm._deadLockCheck(next, origin)
+
 }
 
 func (lm *LockManager) handleUnlockReq(req *LockReq) {
