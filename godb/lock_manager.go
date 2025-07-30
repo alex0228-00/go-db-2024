@@ -55,8 +55,29 @@ func (wl *WaitList) NoWaitReq(pageKey heapHash) bool {
 	return wl.pageWaitList[pageKey] == nil || len(wl.pageWaitList[pageKey]) == 0
 }
 
+func (wl *WaitList) Remove(tid TransactionID) {
+	reqs, ok := wl.tidWaitList[tid]
+	if !ok {
+		return
+	}
+
+	delete(wl.tidWaitList, tid)
+	for _, req := range reqs {
+		wl.pageWaitList[req.pageKey] = slices.DeleteFunc(
+			wl.pageWaitList[req.pageKey],
+			func(r *LockReq) bool {
+				return r.Tid == tid && r.pageKey == req.pageKey
+			},
+		)
+	}
+}
+
 type LockManager struct {
-	ReqCh    chan *LockReq
+	lockReqCh           chan *LockReq
+	unlockReqCh         chan *LockReq
+	unlockAllReqCh      chan *UnlockAllReq
+	getAllLockedPagesCh chan *GetAllLockedPagesReq
+
 	pages    map[heapHash]*Lock
 	waitlist *WaitList
 }
@@ -71,28 +92,75 @@ type LockReq struct {
 	Tid     TransactionID
 	pageKey heapHash
 	Perm    RWPerm
-	Lock    bool
 	Ch      chan error
+}
+
+type UnlockAllReq struct {
+	Tid TransactionID
+	Ch  chan error
+}
+
+type GetAllLockedPagesReq struct {
+	Tid TransactionID
+	Ch  chan []heapHash
 }
 
 func NewLockManager() *LockManager {
 	lm := &LockManager{
-		ReqCh:    make(chan *LockReq),
-		pages:    make(map[heapHash]*Lock),
-		waitlist: NewWaitList(),
+		lockReqCh:           make(chan *LockReq),
+		unlockReqCh:         make(chan *LockReq),
+		pages:               make(map[heapHash]*Lock),
+		unlockAllReqCh:      make(chan *UnlockAllReq),
+		getAllLockedPagesCh: make(chan *GetAllLockedPagesReq),
+		waitlist:            NewWaitList(),
 	}
 	go lm.daemon()
 	return lm
 }
 
 func (lm *LockManager) daemon() {
-	for req := range lm.ReqCh {
-		if req.Lock {
+	for {
+		select {
+		case req := <-lm.lockReqCh:
 			lm.handleLockReq(req)
-		} else {
+		case req := <-lm.unlockReqCh:
 			lm.handleUnlockReq(req)
+		case req := <-lm.unlockAllReqCh:
+			lm.handleUnlockAllReq(req)
+		case req := <-lm.getAllLockedPagesCh:
+			lm.handleGetAllLockedPagesReq(req)
 		}
 	}
+}
+
+func (lm *LockManager) handleGetAllLockedPagesReq(req *GetAllLockedPagesReq) {
+	var ret []heapHash
+	for pageKey, lock := range lm.pages {
+		if slices.Contains(lock.Tid, req.Tid) {
+			ret = append(ret, pageKey)
+		}
+	}
+	req.Ch <- ret
+}
+
+func (lm *LockManager) handleUnlockAllReq(req *UnlockAllReq) {
+	for pageKey, lock := range lm.pages {
+		if slices.Contains(lock.Tid, req.Tid) {
+			lm.handleUnlockReq(&LockReq{
+				Tid:     req.Tid,
+				pageKey: pageKey,
+				Perm: func() RWPerm {
+					if lock.Shared {
+						return ReadPerm
+					} else {
+						return WritePerm
+					}
+				}(),
+			})
+		}
+	}
+	lm.waitlist.Remove(req.Tid)
+	req.Ch <- nil
 }
 
 func (lm *LockManager) Lock(tid TransactionID, pageKey heapHash, perm RWPerm) error {
@@ -101,9 +169,8 @@ func (lm *LockManager) Lock(tid TransactionID, pageKey heapHash, perm RWPerm) er
 		pageKey: pageKey,
 		Perm:    perm,
 		Ch:      make(chan error, 1),
-		Lock:    true,
 	}
-	lm.ReqCh <- req
+	lm.lockReqCh <- req
 	return <-req.Ch
 }
 
@@ -113,9 +180,8 @@ func (lm *LockManager) Unlock(tid TransactionID, pageKey heapHash, perm RWPerm) 
 		pageKey: pageKey,
 		Perm:    perm,
 		Ch:      make(chan error, 1),
-		Lock:    false,
 	}
-	lm.ReqCh <- req
+	lm.lockReqCh <- req
 	return <-req.Ch
 }
 
@@ -205,7 +271,9 @@ func (lm *LockManager) handleUnlockReq(req *LockReq) {
 		})
 	}
 
-	req.Ch <- nil
+	if req.Ch != nil {
+		req.Ch <- nil
+	}
 
 	next := lm.waitlist.Dequeue(req.pageKey, AllPerm)
 	if next != nil {
