@@ -71,4 +71,10 @@ jobs:
       
       - name: LockManager
         run: cd godb && go test -v -run TestLockManager
+      
+      - name: DeadLock
+        run: cd godb && go test -v -run TestDeadLock
+      
+      - name: Lock
+        run: cd godb && go test -v -run TestAcquire
         
