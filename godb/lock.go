@@ -179,7 +179,7 @@ func (l *dbLock) unlock(tid TransactionID, perm RWPerm) {
 			l.read--
 		} else {
 			l.write--
-			if l.write == 0 {
+			if l.write == 0 && l.read > 0 {
 				l.downgrade()
 			}
 		}
