@@ -203,6 +203,7 @@ func TestHeapFilePageKey(t *testing.T) {
 	}
 
 	for hf.NumPages() < 2 {
+		tid = NewTID()
 		err = hf.insertTuple(&t1, tid)
 		if err != nil {
 			t.Fatalf(err.Error())
@@ -217,7 +218,7 @@ func TestHeapFilePageKey(t *testing.T) {
 			t.Fatalf("Heap file should have at least one page after insertion.")
 		}
 
-		bp.FlushAllPages()
+		bp.CommitTransaction(tid)
 	}
 
 	if hf.NumPages() != hf2.NumPages() || hf.NumPages() != 2 {
