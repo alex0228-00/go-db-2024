@@ -23,6 +23,8 @@ type BufferPool struct {
 	// TODO: some code goes here
 	cap   int
 	pages map[any]Page
+
+	lock *DbLock
 }
 
 // Create a new BufferPool with the specified number of pages
@@ -30,6 +32,7 @@ func NewBufferPool(numPages int) (*BufferPool, error) {
 	return &BufferPool{
 		cap:   numPages,
 		pages: make(map[any]Page, numPages),
+		lock:  NewDbLock(),
 	}, nil
 }
 
@@ -51,7 +54,16 @@ func (bp *BufferPool) FlushAllPages() {
 // of the pages tid has dirtied will be on disk so it is sufficient to just
 // release locks to abort. You do not need to implement this for lab 1.
 func (bp *BufferPool) AbortTransaction(tid TransactionID) {
-	// TODO: some code goes here
+	pageKeys := bp.lock.GetAllLockedPages(tid)
+
+	for _, pageKey := range pageKeys {
+		page, ok := bp.pages[pageKey]
+
+		if ok && page.isDirty() {
+			delete(bp.pages, pageKey)
+		}
+	}
+	bp.lock.UnlockAll(tid)
 }
 
 // Commit the transaction, releasing locks. Because GoDB is FORCE/NO STEAL, none
@@ -60,7 +72,21 @@ func (bp *BufferPool) AbortTransaction(tid TransactionID) {
 // that the system will not crash while doing this, allowing us to avoid using a
 // WAL. You do not need to implement this for lab 1.
 func (bp *BufferPool) CommitTransaction(tid TransactionID) {
-	// TODO: some code goes here
+	pageKeys := bp.lock.GetAllLockedPages(tid)
+
+	for _, pageKey := range pageKeys {
+		page, ok := bp.pages[pageKey]
+		assert(ok, "CommitTransaction: page not found in buffer pool for key %v", pageKey)
+
+		if page.isDirty() {
+			err := page.getFile().flushPage(page)
+
+			assert(err == nil, "CommitTransaction: error flushing page: %v", err)
+			page.setDirty(0, false)
+		}
+	}
+
+	bp.lock.UnlockAll(tid)
 }
 
 // Begin a new transaction. You do not need to implement this for lab 1.
@@ -83,6 +109,10 @@ func (bp *BufferPool) BeginTransaction(tid TransactionID) error {
 // implement locking or deadlock detection. You will likely want to store a list
 // of pages in the BufferPool in a map keyed by the [DBFile.pageKey].
 func (bp *BufferPool) GetPage(file DBFile, pageNo int, tid TransactionID, perm RWPerm) (Page, error) {
+	if err := bp.lock.Lock(tid, file.pageKey(pageNo).(heapHash), perm); err != nil {
+		return nil, fmt.Errorf("GetPage: error locking page %d in file: %w", pageNo, err)
+	}
+
 	ret, ok := bp.pages[file.pageKey(pageNo)]
 	if ok {
 		return ret, nil
@@ -106,24 +136,22 @@ func (bp *BufferPool) evictPageIfNeed() error {
 		return nil
 	}
 
+	tid := NewTID()
+	evict := func(key heapHash, page Page) bool {
+		if err := bp.lock.LockNoWait(tid, key, WritePerm); err == nil {
+			defer bp.lock.Unlock(tid, key, WritePerm)
+
+			if !page.isDirty() {
+				delete(bp.pages, key)
+				return true
+			}
+		}
+		return false
+	}
 	for k, v := range bp.pages {
-		if !v.isDirty() {
-			delete(bp.pages, k)
+		if evict(k.(heapHash), v) {
 			return nil
 		}
 	}
 	return fmt.Errorf("GetPage: buffer pool is full of dirty pages, cannot evict any page")
-}
-
-func (bp *BufferPool) CreateNewPage(file *HeapFile, tid TransactionID) (*heapPage, error) {
-	if err := bp.evictPageIfNeed(); err != nil {
-		return nil, fmt.Errorf("CreateNewPage: buffer pool is full, cannot evict any page: %w", err)
-	}
-
-	hp, err := file.createNewPage()
-	if err != nil {
-		return nil, fmt.Errorf("CreateNewPage: error creating new page in file %s: %w", file.fromFile, err)
-	}
-	bp.pages[file.pageKey(hp.pageNo)] = hp
-	return hp, nil
 }

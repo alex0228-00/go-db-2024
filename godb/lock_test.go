@@ -8,7 +8,7 @@ import (
 )
 
 func TestLockManager_Lock(t *testing.T) {
-	lm := NewLockManager()
+	lm := NewDbLock()
 	rq := require.New(t)
 
 	t.Run("should lock and unlock", func(t *testing.T) {
@@ -28,11 +28,11 @@ func TestLockManager_Lock(t *testing.T) {
 		case <-ch:
 			rq.Fail("expect block")
 		default:
-			rq.NoError(lm.Unlock(tid1, heapHash{FileName: "lock and unlock", PageNo: 0}, WritePerm))
+			lm.Unlock(tid1, heapHash{FileName: "lock and unlock", PageNo: 0}, WritePerm)
 		}
 
 		time.Sleep(time.Millisecond * 100)
-		rq.NoError(lm.Unlock(tid2, heapHash{FileName: "lock and unlock", PageNo: 0}, ReadPerm))
+		lm.Unlock(tid2, heapHash{FileName: "lock and unlock", PageNo: 0}, ReadPerm)
 	})
 
 	t.Run("should not lock shared lock when there is write req", func(t *testing.T) {
@@ -72,11 +72,11 @@ func TestLockManager_Lock(t *testing.T) {
 		go lm.Lock(tid3, heapHash{FileName: "release lock", PageNo: 0}, ReadPerm)
 
 		time.Sleep(time.Millisecond * 100)
-		rq.NoError(lm.Unlock(tid1, heapHash{FileName: "release lock", PageNo: 0}, WritePerm))
+		lm.Unlock(tid1, heapHash{FileName: "release lock", PageNo: 0}, WritePerm)
 
 		time.Sleep(time.Millisecond * 100)
-		rq.NoError(lm.Unlock(tid2, heapHash{FileName: "release lock", PageNo: 0}, ReadPerm))
-		rq.NoError(lm.Unlock(tid3, heapHash{FileName: "release lock", PageNo: 0}, ReadPerm))
+		lm.Unlock(tid2, heapHash{FileName: "release lock", PageNo: 0}, ReadPerm)
+		lm.Unlock(tid3, heapHash{FileName: "release lock", PageNo: 0}, ReadPerm)
 	})
 
 	t.Run("should lock when shared lock", func(t *testing.T) {
@@ -89,7 +89,7 @@ func TestLockManager_Lock(t *testing.T) {
 }
 
 func TestLockManager_Deadlock(t *testing.T) {
-	lm := NewLockManager()
+	lm := NewDbLock()
 	rq := require.New(t)
 
 	t.Run("should detect deadlock", func(t *testing.T) {

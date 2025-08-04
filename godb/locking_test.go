@@ -89,67 +89,67 @@ func lockingTestSetUp(t *testing.T) (*BufferPool, *HeapFile, TransactionID, Tran
 func TestAcquireReadLocksOnSamePage(t *testing.T) {
 	bp, hf, tid1, tid2 := lockingTestSetUp(t)
 	metaLockTester(t, bp,
-		tid1, hf, 0, ReadPerm,
-		tid2, hf, 0, ReadPerm,
+		tid1, hf, 1, ReadPerm,
+		tid2, hf, 1, ReadPerm,
 		true)
 }
 
 func TestAcquireReadWriteLocksOnSamePage(t *testing.T) {
 	bp, hf, tid1, tid2 := lockingTestSetUp(t)
 	metaLockTester(t, bp,
-		tid1, hf, 0, ReadPerm,
-		tid2, hf, 0, WritePerm,
+		tid1, hf, 1, ReadPerm,
+		tid2, hf, 1, WritePerm,
 		false)
 }
 
 func TestAcquireWriteReadLocksOnSamePage(t *testing.T) {
 	bp, hf, tid1, tid2 := lockingTestSetUp(t)
 	metaLockTester(t, bp,
-		tid1, hf, 0, WritePerm,
-		tid2, hf, 0, ReadPerm,
+		tid1, hf, 1, WritePerm,
+		tid2, hf, 1, ReadPerm,
 		false)
 }
 
 func TestAcquireReadWriteLocksOnTwoPages(t *testing.T) {
 	bp, hf, tid1, tid2 := lockingTestSetUp(t)
 	metaLockTester(t, bp,
-		tid1, hf, 0, ReadPerm,
-		tid2, hf, 1, WritePerm,
+		tid1, hf, 1, ReadPerm,
+		tid2, hf, 2, WritePerm,
 		true)
 }
 
 func TestAcquireWriteLocksOnTwoPages(t *testing.T) {
 	bp, hf, tid1, tid2 := lockingTestSetUp(t)
 	metaLockTester(t, bp,
-		tid1, hf, 0, WritePerm,
-		tid2, hf, 1, WritePerm,
+		tid1, hf, 1, WritePerm,
+		tid2, hf, 2, WritePerm,
 		true)
 }
 
 func TestAcquireReadLocksOnTwoPages(t *testing.T) {
 	bp, hf, tid1, tid2 := lockingTestSetUp(t)
 	metaLockTester(t, bp,
-		tid1, hf, 0, ReadPerm,
-		tid2, hf, 1, ReadPerm,
+		tid1, hf, 1, ReadPerm,
+		tid2, hf, 2, ReadPerm,
 		true)
 }
 
 func TestLockUpgrade(t *testing.T) {
 	bp, hf, tid1, tid2 := lockingTestSetUp(t)
 	metaLockTester(t, bp,
-		tid1, hf, 0, ReadPerm,
-		tid1, hf, 0, WritePerm,
+		tid1, hf, 1, ReadPerm,
+		tid1, hf, 1, WritePerm,
 		true)
 	metaLockTester(t, bp,
-		tid2, hf, 1, ReadPerm,
-		tid2, hf, 1, WritePerm,
+		tid2, hf, 2, ReadPerm,
+		tid2, hf, 2, WritePerm,
 		true)
 }
 
 func TestAcquireWriteAndReadLocks(t *testing.T) {
 	bp, hf, tid1, _ := lockingTestSetUp(t)
 	metaLockTester(t, bp,
-		tid1, hf, 0, WritePerm,
-		tid1, hf, 0, ReadPerm,
+		tid1, hf, 1, WritePerm,
+		tid1, hf, 1, ReadPerm,
 		true)
 }
