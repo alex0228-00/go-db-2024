@@ -41,6 +41,7 @@ func readXaction(hf DBFile, bp *BufferPool, wg *sync.WaitGroup) {
 			if err != nil {
 				// Assume this is because of a deadlock, restart txn
 				time.Sleep(time.Duration(rand.Intn(8)) * 100 * time.Microsecond)
+				bp.AbortTransaction(tid)
 				goto start
 			}
 			if t == nil {
@@ -86,6 +87,7 @@ func writeXaction(hf DBFile, bp *BufferPool, writeTuple Tuple, wg *sync.WaitGrou
 			if err != nil {
 				// Assume this is because of a deadlock, restart txn
 				time.Sleep(time.Duration(rand.Intn(8)) * 100 * time.Microsecond)
+				bp.AbortTransaction(tid)
 				goto start
 			}
 		}
@@ -155,7 +157,10 @@ func transactionTestSetUpVarLen(t *testing.T, tupCnt int, pgCnt int) (*BufferPoo
 	if err != nil {
 		t.Fatalf("error opening test file")
 	}
-	hf.LoadFromCSV(csvFile, false, ",", false)
+	err = hf.LoadFromCSV(csvFile, false, ",", false)
+	if err != nil {
+		t.Fatalf("error loading test file: %v", err)
+	}
 	if hf.NumPages() != pgCnt {
 		t.Fatalf("error making test vars; unexpected number of pages")
 	}
@@ -174,20 +179,22 @@ func transactionTestSetUp(t *testing.T) (*BufferPool, *HeapFile, TransactionID, 
 
 func TestTransactionTwice(t *testing.T) {
 	bp, hf, tid1, tid2, _ := transactionTestSetUp(t)
-	bp.GetPage(hf, 0, tid1, ReadPerm)
-	bp.GetPage(hf, 1, tid1, WritePerm)
+	bp.GetPage(hf, 1, tid1, ReadPerm)
+	bp.GetPage(hf, 2, tid1, WritePerm)
 	bp.CommitTransaction(tid1)
 
-	bp.GetPage(hf, 0, tid2, WritePerm)
 	bp.GetPage(hf, 1, tid2, WritePerm)
+	bp.GetPage(hf, 2, tid2, WritePerm)
 }
 
 func testTransactionComplete(t *testing.T, commit bool) {
 	bp, hf, tid1, tid2, t1 := transactionTestSetUp(t)
 
-	pg, _ := bp.GetPage(hf, 2, tid1, WritePerm)
+	pg, _ := bp.GetPage(hf, 3, tid1, WritePerm)
 	heapp := pg.(*heapPage)
-	heapp.insertTuple(&t1)
+	if _, err := heapp.insertTuple(&t1); err != nil {
+		t.Fatalf("error inserting tuple: %v", err)
+	}
 	heapp.setDirty(tid1, true)
 
 	if commit {
@@ -198,7 +205,7 @@ func testTransactionComplete(t *testing.T, commit bool) {
 
 	bp.FlushAllPages()
 
-	pg, _ = bp.GetPage(hf, 2, tid2, WritePerm)
+	pg, _ = bp.GetPage(hf, 3, tid2, WritePerm)
 	heapp = pg.(*heapPage)
 	iter := heapp.tupleIter()
 

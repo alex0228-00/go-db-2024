@@ -122,13 +122,13 @@ func TestDeadlockWriteWrite(t *testing.T) {
 func TestDeadlockUpgradeWrite(t *testing.T) {
 	bp, hf, tid1, tid2 := lockingTestSetUp(t)
 
-	lg1Read := startGrabber(bp, tid1, hf, 0, ReadPerm)
-	lg2Read := startGrabber(bp, tid2, hf, 0, ReadPerm)
+	lg1Read := startGrabber(bp, tid1, hf, 1, ReadPerm)
+	lg2Read := startGrabber(bp, tid2, hf, 1, ReadPerm)
 
 	time.Sleep(POLL_INTERVAL)
 
-	lg1Write := startGrabber(bp, tid1, hf, 0, WritePerm)
-	lg2Write := startGrabber(bp, tid2, hf, 0, WritePerm)
+	lg1Write := startGrabber(bp, tid1, hf, 1, WritePerm)
+	lg2Write := startGrabber(bp, tid2, hf, 1, WritePerm)
 
 	for {
 		time.Sleep(POLL_INTERVAL)
@@ -145,9 +145,9 @@ func TestDeadlockUpgradeWrite(t *testing.T) {
 			time.Sleep(time.Duration((float64(WAIT_INTERVAL) * rand.Float64())))
 
 			tid1 = NewTID()
-			lg1Read = startGrabber(bp, tid1, hf, 0, ReadPerm)
+			lg1Read = startGrabber(bp, tid1, hf, 1, ReadPerm)
 			time.Sleep(POLL_INTERVAL)
-			lg1Write = startGrabber(bp, tid1, hf, 0, WritePerm)
+			lg1Write = startGrabber(bp, tid1, hf, 1, WritePerm)
 		}
 
 		if lg2Write.getError() != nil {
@@ -155,9 +155,9 @@ func TestDeadlockUpgradeWrite(t *testing.T) {
 			time.Sleep(time.Duration((float64(WAIT_INTERVAL) * rand.Float64())))
 
 			tid2 = NewTID()
-			lg2Read = startGrabber(bp, tid2, hf, 0, ReadPerm)
+			lg2Read = startGrabber(bp, tid2, hf, 1, ReadPerm)
 			time.Sleep(POLL_INTERVAL)
-			lg2Write = startGrabber(bp, tid2, hf, 0, WritePerm)
+			lg2Write = startGrabber(bp, tid2, hf, 1, WritePerm)
 		}
 	}
 
