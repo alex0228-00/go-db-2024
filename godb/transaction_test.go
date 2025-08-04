@@ -283,19 +283,26 @@ func validateTransactions(t *testing.T, threads int) {
 		// Wait for the signal to start
 		<-startChan
 
-		for tid := TransactionID(0); ; bp.AbortTransaction(tid) {
+		for tid := TransactionID(0); ; {
 			tid = NewTID()
 			bp.BeginTransaction(tid)
+			t.Logf("thread %d started transaction, tid=%d", thrId, tid)
 			iter1, err := hf.Iterator(tid)
 			if err != nil {
+				t.Logf("thread %d error getting iterator: %v, tid=%v", thrId, err, tid)
+				bp.AbortTransaction(tid)
 				continue
 			}
 
 			readTup, err := iter1()
 			if err != nil {
+				t.Logf("thread %d error reading tuple: %v, tid=%v", thrId, err, tid)
+				bp.AbortTransaction(tid)
 				sleepAfterDeadlock(thrId, err)
 				continue
 			}
+
+			t.Logf("thread %d read tuple: %v, tid=%v", thrId, readTup, tid)
 
 			var writeTup = Tuple{
 				Desc: readTup.Desc,
@@ -307,10 +314,14 @@ func validateTransactions(t *testing.T, threads int) {
 			dop := NewDeleteOp(hf, hf)
 			iterDel, err := dop.Iterator(tid)
 			if err != nil {
+				t.Logf("thread %d error getting delete iterator: %v, tid=%v", thrId, err, tid)
+				bp.AbortTransaction(tid)
 				continue
 			}
 			delCnt, err := iterDel()
 			if err != nil {
+				t.Logf("thread %d error deleting tuple: %v, tid=%v", thrId, err, tid)
+				bp.AbortTransaction(tid)
 				sleepAfterDeadlock(thrId, err)
 				continue
 			}
@@ -320,19 +331,26 @@ func validateTransactions(t *testing.T, threads int) {
 			iop := NewInsertOp(hf, &Singleton{writeTup, false})
 			iterIns, err := iop.Iterator(tid)
 			if err != nil {
+				t.Logf("thread %d error getting insert iterator: %v, tid=%v", thrId, err, tid)
+				bp.AbortTransaction(tid)
 				continue
 			}
 			insCnt, err := iterIns()
 			if err != nil {
+				t.Logf("thread %d error inserting tuple: %v, tid=%v", thrId, err, tid)
+				bp.AbortTransaction(tid)
 				sleepAfterDeadlock(thrId, err)
 				continue
 			}
+
+			t.Logf("thread %d inserted tuple: %v, tid=%v", thrId, insCnt, tid)
 
 			if insCnt.Fields[0].(IntField).Value != 1 {
 				t.Errorf("Insert Op should return 1")
 			}
 
 			bp.CommitTransaction(tid)
+			t.Logf("thread %d committed transaction, tid=%v", thrId, tid)
 			break //exit on success, so we don't do terminal abort
 		}
 		startWg.Done()

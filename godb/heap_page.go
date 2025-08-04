@@ -127,6 +127,8 @@ func (h *heapPage) deleteTuple(rid recordID) error {
 	index := rid.(*RecordId)
 	assert(index.PageNo == h.pageNo, "record ID does not match page number")
 
+	h.tuples[index.Slot] = nil
+
 	if err := h.freelist.ReleaseSlot(index.Slot); err != nil {
 		return fmt.Errorf("error releasing slot: %v", err)
 	}

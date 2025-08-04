@@ -77,4 +77,7 @@ jobs:
       
       - name: Lock
         run: cd godb && go test -v -run TestAcquire
-        
+
+      - name: Transaction
+        run: cd godb && go test -v -run TestTransaction
+  
