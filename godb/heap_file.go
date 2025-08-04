@@ -79,6 +79,13 @@ func (f *HeapFile) LoadFromCSV(file *os.File, hasHeader bool, sep string, skipLa
 	bp.BeginTransaction(tid)
 
 	for scanner.Scan() {
+		if cnt%101 == 0 {
+			bp.CommitTransaction(tid)
+
+			tid = NewTID()
+			bp.BeginTransaction(tid)
+		}
+
 		line := scanner.Text()
 		fields := strings.Split(line, sep)
 		if skipLastField {
